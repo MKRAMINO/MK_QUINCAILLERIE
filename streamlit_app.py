@@ -1,5 +1,3 @@
-# CODE COMPLET ET GARANTI SANS ERREUR DE LIGNE FANTOME
-
 import streamlit as st
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, engine
@@ -10,9 +8,10 @@ from dateutil.relativedelta import relativedelta
 import json
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Quincaillerie PRO", page_icon="assets/logo.svg", layout="wide")
+# Retour à l'icône emoji pour éviter les problèmes de chemin de fichier
+st.set_page_config(page_title="Quincaillerie PRO", page_icon="🔩", layout="wide")
 
-# --- STYLE CSS INJECTÉ POUR LE DESIGN 3D BLEU NUIT ---
+# --- STYLE CSS INJECTÉ ---
 st.markdown("""
 <style>
     div[data-testid="stSidebarUserContent"] { background-color: #0D1B2A; }
@@ -34,16 +33,22 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- CONSTANTES DE L'APPLICATION ---
+# --- CONSTANTES ---
 CATEGORIES = ["Peinture", "Plomberie", "Électricité", "Outillage", "Matériaux de Construction", "Quincaillerie", "Jardinage", "Sécurité", "Non classé"]
 UNITS = ['Unité', 'Boite', 'Carton', 'Fût', 'Bidon', 'Sac', 'Rouleau', 'kg', 'Gramme', 'Litre', 'Mètre', 'Barre']
 COEFFICIENTS = {"Aucun (Manuel)": 1.0, "Marge de 20%": 1.2, "Marge de 30%": 1.3, "Marge de 40%": 1.4, "Marge de 50%": 1.5, "Marge de 75%": 1.75, "Marge de 100% (x2)": 2.0}
 
-models.Base.metadata.create_all(bind=engine)
+# --- CONNEXION BDD POUR STREAMLIT CLOUD ---
+# @st.cache_resource est la clé. Il garde la connexion BDD persistante sur le serveur.
+@st.cache_resource
+def get_db_connection():
+    # Crée les tables si elles n'existent pas
+    models.Base.metadata.create_all(bind=engine)
+    return SessionLocal()
 
-# Initialisation de la session state
-if 'db' not in st.session_state: st.session_state.db = SessionLocal()
-db: Session = st.session_state.db
+db: Session = get_db_connection()
+
+# --- INITIALISATION DE LA SESSION STATE ---
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'current_user' not in st.session_state: st.session_state.current_user = None
 if 'editing_id' not in st.session_state: st.session_state.editing_id = None
@@ -67,17 +72,10 @@ def login(username, password):
 
 def logout():
     for key in list(st.session_state.keys()):
-        if key != 'db': del st.session_state[key]
+        if key not in ['db']: # Ne pas supprimer la connexion à la BDD
+            del st.session_state[key]
+    st.session_state.logged_in = False
     st.rerun()
-
-def update_selling_price():
-    try:
-        purchase_price = st.session_state.get("purchase_price_input", 0.0)
-        coeff_str = st.session_state.get("coefficient_input", "Aucun (Manuel)")
-        coefficient = COEFFICIENTS.get(coeff_str, 1.0)
-        if purchase_price > 0 and coefficient > 1.0:
-            st.session_state.selling_price_input = float(round(purchase_price * coefficient))
-    except Exception: pass
 
 def generer_html_facture(sale: models.Sale, settings: dict):
     def format_currency(value): return f"{value or 0:,.2f}".replace(",", " ")
@@ -163,7 +161,6 @@ def page_produits():
     if st.button("➕ Ajouter un nouveau produit"):
         st.session_state.editing_id = None
         st.session_state.form_type = "product"
-        if "selling_price_input" in st.session_state: del st.session_state.selling_price_input
         st.rerun()
     if st.session_state.get('form_type') == "product":
         mode = "Modification" if st.session_state.editing_id else "Création"
@@ -179,7 +176,6 @@ def page_produits():
             default_purchase_price = editing_product.purchase_price if editing_product else 0.0
             default_selling_price = editing_product.selling_price if editing_product else 0.0
             default_promo_price = editing_product.promo_price if editing_product else 0.0
-            default_stock = editing_product.stock_quantity if editing_product else 0
             
             name = st.text_input("Nom", value=default_name)
             st.text_input("Référence / SKU", value=default_sku, disabled=True)
@@ -194,11 +190,8 @@ def page_produits():
             st.subheader("Prix")
             col1, col2, col3 = st.columns(3)
             purchase_price = col1.number_input("Prix d'achat", min_value=0.0, step=0.01, value=default_purchase_price)
-            coefficient_str = col2.selectbox("Marge", options=COEFFICIENTS.keys())
             selling_price = col3.number_input("Prix de vente", min_value=0.0, step=0.01, value=default_selling_price)
             promo_price = st.number_input("Prix promo", min_value=0.0, step=0.01, value=default_promo_price)
-            st.markdown("---")
-            st.number_input("Stock", value=default_stock, disabled=True)
             
             # Form submission
             col_btn1, col_btn2 = st.columns(2)
@@ -516,15 +509,15 @@ if not st.session_state.logged_in:
             username = st.text_input("Nom d'utilisateur")
             password = st.text_input("Mot de passe", type="password")
             if st.form_submit_button("Se connecter"):
+                # Création de l'utilisateur admin s'il n'existe pas
                 if not crud.get_user_by_username(db, username="admin"):
                     crud.create_user(db=db, user=schemas.UserCreate(username="admin", password="password123", role="admin"))
-                    st.info("Compte 'admin' créé (mdp: password123). Connectez-vous.")
+                    st.info("Compte 'admin' créé (mdp: password123). Veuillez vous reconnecter.")
                 login(username, password)
 else:
     user = st.session_state.current_user
     with st.sidebar:
-        # LE SEUL ET UNIQUE ENDROIT POUR LE LOGO
-        st.image("assets/logo.svg", width=100)
+        # La ligne pour afficher le logo a été retirée pour éviter les erreurs.
         st.title(f"Bienvenue, {user.username}")
         st.write(f"Rôle : {user.role.value}")
         
@@ -534,7 +527,7 @@ else:
         
         st.markdown('<div data-testid="stSidebarNav">', unsafe_allow_html=True)
         for option in menu_options:
-            if st.button(option, use_container_width=True, type="primary" if st.session_state.menu_choice == option else "secondary"):
+            if st.button(option, use_container_width=True, type="primary" if st.session_state.get('menu_choice') == option else "secondary"):
                 st.session_state.menu_choice = option
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -550,6 +543,6 @@ else:
         "Ventes": page_ventes, "Personnel": page_personnel,
         "Paramètres": page_parametres, "États & Rapports": page_etats
     }
-    page_function = PAGES.get(st.session_state.menu_choice)
+    page_function = PAGES.get(st.session_state.get('menu_choice'))
     if page_function:
         page_function()
